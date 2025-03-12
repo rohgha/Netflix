@@ -1,0 +1,677 @@
+Netflix Project:
+
+
+
+Netflix data:
+1)Movie title
+2)netflix_cast
+3)netflix_category
+4)netflix countries
+5)netflix_directors
+**BRonze layer
+*1st data source is github(data files): we use adf to ingest these data from github to azure data lake) we use dynamic pamameterized pipeline
+*2nd source is data lake: few file are present on data lake and we will use databricks(autoloader) to pull these data incremently.
+
+**Silver Layer:
+*We use databricks as a transformation tool(PySpark)
+*Workflow activities
+(Instead of creating static notebokks i will be creating dynamic notebook)
+*Work flow activities: ForEach,ifelse 
+*Gold layer:
+*Delta live table
+
+*You can push you data to data warehouse or power bi as well in synapse
+
+
+
+
+*Create one resouce group: RG_Netflix_Project
+*Create data lake storage account : storagenetflix9620
+*Three contaners
+1)bronze
+2)silver
+3)gold
+4)raw :1 is for data incremently coming for databricks
+
+
+
+*Create one azure data factory account
+
+*******************************************************************************************************************************************************************
+*Now we have ingest the data from github(api) to destination adls at bronze container using data factpry pipeline
+
+*Linked service to connect with github which is source( create 1 linked service for it data store : http) in data factory while creation of linked service
+ github<->azure data factory
+
+*connector is http
+
+*create linked service for adls which is the destination. adls<->azure data factory
+*connector is: azure data lake gen2 (while creating the linked service)
+
+
+
+source: *Create one datasset for dataset_github: http ->csv-> (and delect the proper linked service)
+create one dataset :(dont provide relative url) we make dynamic pipeline->advanced->parameters->
+  parameter name: file_name
+  connection: relative url: add_dynamic: we have 5 files so just copy the relative url
+                            rohgha/Netflix/refs/heads/main/@{dataset().file_name}
+
+All files relative url is same , but name is different so just take the relative url and add parameter to it(dynamic content)
+   (pipeline expression builder)
+
+*Now click on pipeline ->source , you can one variable is adsded here right: file_name
+
+*There are 4 file in github (tiles files are coming from databricks): you have to pull all 4 pipeline dynamicaly
+
+*In source there is one parameter addes: file_name
+
+*We will use for loop to pass the value to this parameter.
+
+
+
+*Create a sink dataset: adls->csv->dont select any relative url:->linked_servce_dataset name->browse container_>bronze->ok->advanced->open this dataset->
+                       create two parameter go to parameter: 1)folder_name, 2)file_name
+
+*Go to connection: file path: bronze->add dynamic select folder_name-> select file name ok
+
+* go to pipeline
+
+*Source: file_name
+*Sink: folder_name
+       file_name
+
+*Now we have to create a iterative activity(for each activity)
+
+*Go to pipeline
+
+*Iteration: for each activity: now to run for each activity we have to pass an array
+  We have two option: use paramater
+                       use json file
+
+*We create a parameter:
+(Dont click on any activity just click a empty space)
+->click on paramater: p_array
+
+(create an array and put in value column)
+
+[
+   {
+      "folder_name": "netflix_cast",
+      "file_name": "netflix_cast.csv"
+   },
+   {
+      "folder_name": "netflix_category",
+      "file_name": "netflix_category.csv"
+   },
+   {
+      "folder_name": "netflix_countries",
+      "file_name": "netflix_countries.csv"
+   },
+   {
+      "folder_name": "netflix_directors",
+      "file_name": "netflix_directors.csv"
+   }
+]
+
+
+*You will create this array and stored this array in a paramater(values)
+*We will use this array to provide the value to the for each activity
+
+*Click one for each activity
+*->setting: how you pass this value: ->items->add dynamic->p_array
+
+
+*Now click on copy activity: ctrl+x , then click on for each activity click on edit (pencil) and paste you copy activity)(ctrl+v)
+(You copy activity inside the for each activity)
+
+*It will embed you copy activity inside the for each activity
+
+*Now there itself foreach(copy)  click on source: file_name->value->add dynamic->forallthefiles-> @item.file_name (it is file_name.csv) right 
+
+*Now there in sink: folder_name->value->add dynamic: @item.folder_name
+*Now there in sink :file_name->value->add dynamic: @item.file_name
+
+*Go to the back main pipeline
+
+*Within a for each activity we have a copy activity
+
+
+*IMPORATNT::::
+
+*I only want to run this pipeline if i have titles (netflix_tiles.csv) this file is available in raw container.
+
+*Add one validation activity in this pipeline  and that we are performing before for each and the copy activity
+
+*For validation activity we need to create a dataset
+(click on it: dataset new: adls gen2 : csv: linked_service: browse container
+ok:
+
+*You just have to wait if any kind of file is there(data validation)
+
+*Just deactivate the main pipeline and run the data validation pipeline
+(pipeline is successfully executed)
+*But we want file within this(netflix_titles.csv)
+*But you add file name in dataset , it will just running and running 
+*But at the movement the netflix_titles.csv file is present in raw container then it will execute right.(if file is not there then it just just running )
+(Just cancel it will not running)
+
+
+*Activate the main pipeline activity
+
+*Add one web activity: settings:   git main url (https://github.com/rohgha/Netflix) paste in url section and method is (get)
+
+*Deactivate the other two pipeline 
+
+*Run the web activity
+(successfull get the metadata of the github files)
+
+(if you want to get the metadata of all the files )
+(metadata means: file name, column name (headers), datatypes, number or rows and columns , file size,missing values, source information, last updated date)
+
+
+*You can store all these metadata as well,  click on  empty space the variable add variable gitmedata then , 
+
+*Add set variable activity , setting : gitmetadata(add) (to store the all metadata)(to store the logs)
+
+***(set variable activitu->settings ->add dynamic: @activity('github_metadata').output.Response 
+
+(click on github_metadata_ and add Response at the end generated code
+(The output of the web activity will be store in set variable activity)
+
+*Now connect all:
+
+Web activity-> set variable activity-> data validation activity->for each activity(copy activity)
+
+(first check matadata , store it in set variable, the check one file is exists in raw container(data validation , and the run for each activity (copy data)
+to bronze container. and connect all activity to each other as with the the flow )
+(end to end flow)
+
+* Do one thing upload the file in raw container so it will not show any error ok
+(netflix_titles.csv)
+
+
+Run the pipeline (successded)
+(data is copied in azure data lake gen2 bronze container successfully)
+
+
+*****************************************************
+dataset github: file_name
+
+dataset_sink:folder_name
+             file_name
+
+for each:
+
+click on empty tab:parametr: p_array:paste the created array
+
+click on empty tab :variable: gitmetadata (add)
+
+add it in for each setting items:p_array
+*****************************************************
+
+##########################################################################################################################################################
+
+
+* Create one databricks workspace
+(managed resource group name in databricks:It contains resources required for Databricks operation, such as virtual networks, storage accounts, and security groups.)
+
+*We use unity catelog to store our table in unity catelog
+
+*We have assign permission to databricks to read and write the data so go to storage account access (IAM) 
+ -addd role assignment
+ - storage blob data contributor
+ -managed identity
+ -access connector
+ -create
+
+*[Access connector]: In Azure, an Access Connector is a service that enables secure and managed connectivity between Azure resources and external services.
+ It is mainly used in scenarios where Azure services need to interact with external data sources in a controlled manner.
+   Databricks <-> Data lake
+(Databricks will read and write the data within the datalake)
+
+*Databricks is not allowd to access the data within data lake but the access connector do
+
+
+*[Metastore]: In Databricks, a metastore is like a catalog or database that stores information about your tables and data. 
+Stores metadata about databases, tables, columns, and data types.
+✅ Supports multiple storage systems like Delta Lake, Parquet, CSV, etc.
+✅ Used for managing access control (who can view or edit tables).
+✅ Works with Hive-compatible queries (because it's built on Apache Hive Metastore).
+✅ Allows data governance using Unity Catalog (for multi-workspace access control).
+
+
+
+In Databricks:
+-catalog 
+-create metastore: netflix_unity_metastore
+-region : central india
+-adls gen 2 path: metastore(container name)@netflixstorage(storage acc name).dfs.core.windows.net/
+-paste access connector id(resouce id)
+-create
+
+-workspaces-assign the workspace to the metastore(unity catalog is enable in you workspace)
+
+-create a catalog: netflix_catalog
+-location(but we have provided at a metastore level)
+
+
+-we need to the external data location
+but first create 
+-credentails your name created and access connector id
+-create external location name: bronze_external (inside the catalog)
+-url(location): abfs://bronze@netflixstorage9620.dfs.core.windows.net
+-put your credentials: your name created and access connector id
+
+-create new storage location another one (silver_container)
+-silver_ext
+- abfs://silver@netflixstorage9620.dfs.core.windows.net
+-provide credenials
+
+one more external location(gold)  
+
+-gold_ext
+-abfs://gold@netflixstorage9620.dfs.core.windows.net
+-provide the credentials
+
+
+#create one external location as well 
+
+
+-raw_ext
+-abfs://raw@netflixstorage9620.dfs.core.windows.net
+-provide the credentials
+
+
+
+-create a compute (engine to process your data)
+
+
+-go to workspaace
+-create one folder
+-create one notebook(autoloader)
+
+
+
+-In notebook
+-incremental data loading using autoloader
+
+-consider netflix_titles.csv file just came today
+-for new movie we have different csv file.
+
+(Notebook)
+-Autoloader(has two different way to load the data)
+-Directory Listing
+-file notifications
+
+
+#rocksDB
+-databricks: it will identify the file read (diectory listing)
+-and push this data into the target location
+-it will also create one location called check point location
+(this is the location from where it will get to know that which file has to read it will just read the fileof next day
+
+
+
+
+#We will create a schema inside the catalog(in notebook)
+
+[CREATE SCHEMA netflix_catalog.net_schema;]
+
+
+checkpoint_location="abfs://silver@netflixstorage9620.dfs.core.windows.net/checkpoint"
+
+
+df=spark.readStream
+  .format("CloudFiles") \
+  .option("CloudFiles.format","csv") \
+  .option("CloudFiles.schemaLocation",checkpoint_location) \
+  .load(""abfs://raw@netflixstorage9620.dfs.core.windows.net")
+
+display(df) #returnningthe data
+-my data is reside in bronze so take this path (load)
+
+
+
+#we will writing  this data to a location(it is bronze)
+(Because we are just ingesting the data to the bronze zone)
+
+df.writeStream
+  .option("checkpointLocation",checkpoint_location) \
+                                                                                 #availableNow=True
+  .trigger(processingTime='10 sec')\ #it will load your data in bulk and just completed and stop,but i want run my query in contuniation then i use a processing time
+  .start("abfss://bronze@netflixstorage9620.dfs.core.windows.net/netflix_titles")
+
+(run)(it is started writing data to my desired location)
+
+
+
+
+
+
+
+
+
+****At here all our csv files are stored in bronze layer successfull using adf pipeline and using databricks autoloader********************************
+
+
+
+*Create new notebook
+*Silver notebook (look up tables)(mapping data)
+
+#Now how to read data(from bronze layer)
+
+df=spark.read.format("csv")\
+  .option("inferSchema",True)\
+  .option("header",True)\
+  .load("abfss://bronze@netflixstorage9620.dfs.core.windows.net/netflix_directors")
+
+df.show()
+df.display()
+
+
+
+#write the data
+
+df.write.format("delta")\
+ .mode("append")\
+ .option("path","abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_directors")
+ .save()
+
+
+
+
+
+
+-Lets see i have 300 hundread file so it is not possible to read and write so we use parameters.
+
+#parametrs
+dbutils.widgets.text("sourcefolder","netflix_directors")
+dbutils.widgets.text("targetfolder","netflix_directors")
+
+
+#variables
+
+var_src_folder=dbutils.widgets.get("sourcefolder")
+var_trg_folder=dbutils.widgets.get("targetfolder")
+
+
+df=spark.read.format("csv")\
+  .option("inferSchema",True)\
+  .option("header",True)\
+  .load("abfss://bronze@netflixstorage9620.dfs.core.windows.net/{var_src_folder}")
+
+df.write.format("delta")\
+ .mode("append")\
+ .option("path","abfss://silver@netflixstorage9620.dfs.core.windows.net/{var_trg_folder}")
+ .save()
+
+
+
+
+#use lookup(workflow) in databricks we will create an array
+
+
+#-create a new notebook(lookup notebook)
+
+-i will create a array parameter
+
+files=[
+
+{
+ "sourcefolder":"netflix_directors",
+  "targetfolder":"netflix_directos"
+}
+{
+ "sourcefolder":"netflix_cast",
+  "targetfolder":"netflix_cast"
+}
+{
+ "sourcefolder":"netflix_countries",
+  "targetfolder":"netflix_countries"
+}
+{
+ "sourcefolder":"netflix_category",
+  "targetfolder":"netflix_category"
+}
+
+
+-create one utility (job utility) to return the array
+dbutils.jobs.taskValues.set(key="my_array",values="files")
+
+
+
+
+-workflows-create job(this is databricks data factory)
+
+-1st task is lookup notebook
+
+-task-lookuplocations
+-path-lookup notebook
+-add task-:silver notebook
+-select notebook silver
+
+
+_parameters: sourcefolder->my array
+             targetfolder
+
+loop over this task(for each activity)
+
+(run pipeline)
+
+*Now ll csv file and data are stored in silver layer container(in delta format)
+
+
+
+*************************************Now you apply some amzing pyspark transformation*****************************************************
+
+*Create new notebook: silver_data_transformation
+
+*df=spark.read.format("delta")\
+   .option("header",true)\
+   .option("interschema",true)\
+   .load("abfss://silver@netflixstorage9620.dfs.core.windows.net\netflix_titles")
+
+(run it)
+df.display()
+
+
+
+
+#apply transformation full-fill null data
+
+df=df.fillna({'duration_minutes':0,'duration_seasons':1}).show()
+
+(run it)
+
+
+#converting one data type into another one
+df=df.withColumn('duration_minutes',col('duratio_minutes').cast('int)) \
+     .withColumn('duration_seasons',col('duratio_sesons').cast('int)) \
+
+(run it)
+
+df.printSchema()
+df.display()
+
+
+
+#make transformation that we want value before : the colon
+
+
+df=df.withColumn('shorttitle',split(col('title'),':')[0]).show()
+
+(return only records before colon [0]zeroth element)
+
+
+
+
+#we have to grabthe first element of rating column and separator is - (hyphen)
+
+df=df.withColumn('rating',split(col('rating'),"-")[0]).show()
+
+
+
+# create a conditional column
+
+df=df.withColumn('typeflag',when(col('type')=='Movie',1) \
+   .when(col('type')=='TV Show',2)\
+   .otherwise(0))
+df.show()
+
+
+
+
+#dense_rank() use the window function(it gives the true ranking)
+
+df=df.withColumn('duration_ranking',dense_rank().over(window.orderBy('duration_minutes').desc()))
+
+df.display()
+
+df.createOrReplaceGlobalTempView('temp_view')
+#
+
+
+
+df=spark.sql('select *from global_temp.temp_view')
+df.show()
+
+
+
+*aggrgate data
+
+df=df.groupBy('type').agg(count("*").alias('total_count'))
+
+df.show()
+
+ 
+#you can also make visualzation on your data in notebook 
+
+
+#write the data
+
+df.write.format("delta")\
+ .mode("overwrite")\
+ .option("path","abfss://silver@betflixproject9620.dfs.core.windows.net/netflix_titles")\
+ .save()
+
+#data is saved in silver layer (trabsformed data)
+
+
+#i just want to run these notebook on weekends ony 
+
+-create notebook(5lookup notebook)
+
+dbutils.widgets.text('weekday','7')
+
+(run it)
+
+var=int(dbutils.widgets.get('weekday'))
+
+dbutils.jobs.taskVAlues(key='weekoutput',values='var')
+
+
+-go to workflow
+
+- one task create
+-task name: weekday lookup
+-path(notebook path 5lookup notebook)
+
+
+
+(parameter name:) week_day
+
+-weekoutput(create task)
+-add task(silver master data)
+
+-take the notebook(4th one)
+-if else condiditon (output of this task(weekdaay) equal to equal to7)
+then it true then run my notebook
+
+-silver master data
+
+
+
+
+
+
+
+
+
+
+
+
+
+*****************************GOLD LAYER(delta live tables)*********************************************************
+
+
+*DLT Notebbook(gold layer)
+
+
+looktable_rules={
+"rule1":"showid is not null"
+}
+
+
+@dlt.table(
+name="gold_netflixdirectors"
+)
+@dlt.expect_all_or_drop(looktableup_rules)
+def myfun():
+  df=spark.readStremformat("delta").load("abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_directors")
+  return df
+
+@dlt.table(
+name="gold_netflixcast"
+)
+
+def myfun():
+  df=spark.readStream.format('delta').load("abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_cast")
+  return df
+
+
+@dlt.table(
+name="gold_netflixcountries"
+)
+@dlt.expect_all_or_drop(looktableup_rules)
+def myfun():
+  df=spark.readStream.format("delta").load("abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_countries")
+  return df
+
+
+@dlt.table(
+name="gold_netflixcategory"
+)
+@dlt.expect_all_or_drop(looktableup_rules)
+def myfun():
+  df=spark.readStream.format("delta").load("abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_category")
+  return df
+
+
+
+
+
+@dlt.table
+
+def gold_neflix_titles:
+     df=spark.readStream.format("delta").load("abfss://silver@netflixstorage9620.dfs.core.windows.net/netflix_title")
+     return df
+
+
+
+
+@dlt.table
+
+
+def gold_netflixtiles:
+df=spark.readStream.table("LIVE.gold_neflix_titles)
+
+
+
+#if you want make transformation you do
+
+
+
+You can make dashboards and stored and use data in synapse analytics as well 
+
+
+Thank You
